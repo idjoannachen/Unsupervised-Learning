@@ -7,6 +7,7 @@
 #
 
 import numpy as np
+from numpy.linalg import norm
 import codecs
 import json
 import scipy
@@ -154,7 +155,8 @@ def L(A, normalized=True):
         L (N x N np.ndarray): graph Laplacian
     """
     D = np.diag(A.sum(axis=1)) # degree matrix of A = sum of A-th rows
-    semi_D = scipy.linalg.fractional_matrix_power(D, -1/2) # power of (-1/2)
+    # semi_D = scipy.linalg.fractional_matrix_power(D, -1/2) # power of (-1/2)
+    semi_D = np.diagflat(np.power(D.diagonal(),-1/2))
     
     if normalized == True:
         L = np.eye(A.shape[0]) - np.matmul(semi_D, np.matmul(A,semi_D))
@@ -205,24 +207,36 @@ def filterbank_matrix(psi, e, h):
         H (N x N np.ndarray): Filter matrix that can be used in the form
         filtered_s = H@s
     """
-    # if h == 'sigmoid':
-    #     fx_h = lambda x: 1/(1+np.exp(-x)) 
-    # elif h == 'sine':
-    #     fx_h = lambda x: np.sin(x) 
-    # elif h == 'cosine':
-    #     fx_h = lambda x: np.cos(x)
-
-    if h == 'cutoff':
-        c = 0.8
+    if h == 'gaussian':
+        print("Input mu:")
+        mu = float(input())
+        print("Input sigma:")
+        sigma = float(input())
+        filter_eig = np.zeros(len(e))
+        for i in np.arange(np.size(e)):
+            filter_eig[i] = np.exp(-(e[i]-mu)**2/(2*sigma**2))
+    
+    elif h == 'low pass':
+        c = 0.5
+        filter_eig = np.zeros(len(e))
+        
         for i in np.arange(np.size(e)):
             if e[i] < c:
-                e[i] = 1
+                filter_eig[i] = 1
             else:
-                e[i] = 0
-        fx_h = lambda t: t
+                filter_eig[i] = 0
+
+    elif h == 'high pass':
+        c = 0.5
+        filter_eig = np.zeros(len(e))
         
-    fx_h = np.vectorize(fx_h)
-    H = np.matmul(psi, np.matmul(np.diagflat(fx_h(e)), psi.T))
+        for i in np.arange(np.size(e)):
+            if e[i] > c:
+                filter_eig[i] = 1
+            else:
+                filter_eig[i] = 0
+        
+    H = np.matmul(psi, np.matmul(np.diagflat(filter_eig), psi.T))
     return H
 
 
@@ -237,10 +251,77 @@ def kmeans(X, k, nrep=5, itermax=300):
     Returns:
         labels (n x 1 np.ndarray): Cluster labels assigned by kmeans
     """
-    init = kmeans_plusplus(X, k)  # find your initial centroids
-    # perform kmeans
-    return labels
+    centroids = np.zeros((k, X.shape[1]))
+    labels = np.zeros((X.shape[0],1))
+    
+    #initalize the distance to beat with each rep
+    lowest_total_avg_sum = np.inf
+    
+    for i in range(nrep):
+        #initialize centroids
+        init = kmeans_plusplus(X, k)  
+        k_clust_members = np.zeros((X.shape[0],k))
+        
+        current_cent = init
+        current_iter = 1
+        
+        while current_iter < itermax:
+            k_total_avg_sum = 0
+            new_cent = np.zeros((k, X.shape[1]))
+            #compute dist to centroids
+            dist = scipy.spatial.distance.cdist(X,current_cent)
 
+            #get labels for nearest cluster
+            nearest = np.column_stack((dist, (np.argmin(dist,axis=1)+1)))
+
+            #recreate clusters
+            for i in range(0, X.shape[0]):
+                clust_id = nearest[i,-1]
+                k_clust_members[i, int(clust_id)-1] = clust_id
+
+            
+            for i in range(0,k):
+                #current cluster member indices 
+                k_clust_ids = np.argwhere(k_clust_members[:,i])
+                member_coords = X[k_clust_ids].reshape(-1,X.shape[1])
+
+                #new centroid coords
+                sum_x = np.sum(member_coords[:, 0])
+                sum_y = np.sum(member_coords[:, 1])
+                sum_z = 0
+                
+                #3d
+                if X.shape[1] == 3:  
+                    sum_z = np.sum(member_coords[:, 2])
+
+                new_cent[i,0] = sum_x/member_coords.shape[0]
+                new_cent[i,1] = sum_y/member_coords.shape[0]
+                
+                #3d
+                if X.shape[1] == 3:
+                    new_cent[i,2] = sum_z/member_coords.shape[0]
+
+                k_total_avg_sum += (sum_x + sum_y + sum_z) / X.shape[0]
+
+            centroid_diff = new_cent - current_cent
+            
+            if np.sum(np.abs(centroid_diff)) <= 0.00000:
+                break
+
+            else:
+                current_cent = new_cent
+
+            current_iter += 1
+                
+        if k_total_avg_sum  < lowest_total_avg_sum:
+            
+            #If sum of k averages less than current min, those are best centroids
+            #This sets a new centroid best value
+            centroids = new_cent
+            labels = nearest[:,-1]
+            lowest_total_avg_sum = k_total_avg_sum
+    
+    return labels
 
 def kmeans_plusplus(X, k):
     """kmeans_plusplus: initialization algorithm for kmeans
@@ -250,9 +331,25 @@ def kmeans_plusplus(X, k):
 
     Returns:
         centroids (k x d np.ndarray): centroids for initializing k-means
-    """
-    return centroids
+    """  
+    # randomly choose a point
+    idx = np.random.randint(0,X.shape[0])
+    
+    # compute distance
+    D = squareform(pdist(X))
+    dist = D[idx]
+    
+    # normalize
+    pmf = dist/sum(dist)
 
+    # choose k centroids
+    indices = np.random.choice(np.arange(0,X.shape[0]),
+                               size = k,
+                               replace=False,
+                               p=pmf)
+
+    centroids = X[indices,:]
+    return centroids
 
 def SC(L, k, psi=None, nrep=5, itermax=300, sklearn=False):
     """SC: Perform spectral clustering 
@@ -269,18 +366,21 @@ def SC(L, k, psi=None, nrep=5, itermax=300, sklearn=False):
     if psi is None:
         # compute the first k elements of the Fourier basis
         # use scipy.linalg.eigh
-        pass
+        psi = np.linalg.eigh(L)[1]
+        psi_norm = psi[:, :k]
+
     else:  # just grab the first k eigenvectors
-        psi_k = psi[:, :k]
+        psi_norm = psi[:, :k]
 
     # normalize your eigenvector rows
+    l2_norm = norm(psi_norm, axis=1, ord=2)
+    norm_psi = psi_norm / l2_norm.reshape(psi_norm.shape[0],1)
 
     if sklearn:
         labels = KMeans(n_clusters=k, n_init=nrep,
                         max_iter=itermax).fit_predict(psi_norm)
     else:
-        pass
         # your algorithm here
+        labels = kmeans(X = psi_norm, k = k, itermax = itermax, nrep = nrep)
 
     return labels
-
