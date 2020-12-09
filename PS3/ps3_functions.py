@@ -189,7 +189,7 @@ def mmd(X,Y, kernel_fn):
     MMD(X,Y) = Expected value of k(X,X) + Expected value of k(Y,Y) - Expected value of k(X,Y)
     where k is a kernel function
     """
-
+    mmd = torch.mean(kernel_fn(X, X)) + torch.mean(kernel_fn(Y, Y)) - torch.mean(kernel_fn(X, Y)) * 2
     return mmd
 
 
@@ -200,9 +200,9 @@ def kernel(A, B):
     :param B: An n x d numpy matrix containing the samples from distribution 2.
     :return K:  An n x n numpy matrix k, in which k_{i,j} = e^{-||A_i - B_j||^2/(2*sigma^2)}
     """
-
+    sigma = 1
+    K = torch.exp(-(torch.abs(A-B)**2 / (2.0 * sigma**2)))
     return K
-
 
 import matplotlib.pyplot as plt
 
