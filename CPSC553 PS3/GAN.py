@@ -3,15 +3,19 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 import torch.optim as optim
 import torchvision.datasets as datasets
+from torch.autograd import Variable
 import imageio
 import numpy as np
 import matplotlib
+import math
 from torchvision.utils import make_grid, save_image
 from torch.utils.data import DataLoader
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 matplotlib.style.use('ggplot')
 
+criterion = nn.BCELoss() 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 class Generator(nn.Module):
     def __init__(self, nz):
         super(Generator, self).__init__()
@@ -65,9 +69,24 @@ def train_discriminator(optimizer, real_data, fake_data):
     2. Compute and sum the respective loss terms (described in the assignment)
     3. Backpropogate the loss (e.g. loss.backward()), and perform optimization (e.g. optimizer.step()).
     """
+    # optimizer.zero_grad()
+    fake_out = discriminator(fake_data)
+    real_out = discriminator(real_data)
+    y_fake = Variable(torch.zeros(batch_size, 1, device = device))
+    y_real = Variable(torch.ones(batch_size, 1, device = device))
+    D_real_loss = criterion(real_out, y_real)
+    D_fake_loss = criterion(fake_out, y_fake)
+    # loss = -0.5 * y_real * torch.clamp(torch.log((real_out)), 1e-3, 1e3) - 0.5 * (1 - y_fake) * torch.clamp(torch.log(1 - fake_out), 1e-3, 1e3)
+    # loss = loss.sum()
+    # import pdb; pdb.set_trace()
+    loss = (D_fake_loss + D_real_loss) / 2
+
+    loss.backward()
+    # optimizer.step()
 
     # we'll return the loss for book-keeping purposes. (E.g. if you want to make plots of the loss.)
-    return loss
+
+    return loss.item(), optimizer
 
 def train_generator(optimizer, fake_data):
     """
@@ -81,7 +100,19 @@ def train_generator(optimizer, fake_data):
     2. compute the resultant loss for the generator (as described in the assignment)
     3. Backpropagate the loss, and perform optimization
     """
-    return loss
+    # import pdb; pdb.set_trace()
+
+    # with torch.no_grad():
+    # optimizer.zero_grad()
+    fake_out = discriminator(fake_data)
+    y = Variable(torch.ones(batch_size, 1).to(device))
+    loss = criterion(fake_out, y)
+    # loss = -0.5 * y * torch.clamp(torch.log(fake_out), 1e-3, 1e3)
+    # loss = loss.sum()
+    # import pdb; pdb.set_trace()
+    loss.backward()
+    # optimizer.step()
+    return loss.item(), optimizer
 
 # import data
 batch_size = 100
@@ -94,20 +125,43 @@ train_data = datasets.MNIST(
 train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 
 num_epochs = 1000
-nz = # dimension of random noise
+nz = 25# dimension of random noise
 generator = Generator(nz)
-discriminator = Discriminator(nz)
-
+generator = generator.to(device)
+discriminator = Discriminator()
+discriminator = discriminator.to(device)
+g_optimizer = optim.Adam(generator.parameters(), lr=3e-4)
+d_optimizer = optim.Adam(discriminator.parameters(), lr=3e-4)
 #TODO: Build a training loop for the GAN
 # For each epoch, you'll
 # 1. Loop through the training data. For each batch, feed random noise into the generator to generate fake_data of the corresponding size.
 # 2. Feed the fake data and real data into the train_discriminator and train_generator functions
 # At the end of each epoch, use the below functions to save a grid of generated images.
 for epoch in range(num_epochs):
-    for data in train_loader:
+    for data, _ in train_loader:
         # perform training
+        data = data.to(device)
+        g_optimizer.zero_grad()
+        
 
+        noise = torch.randn((batch_size, nz), device=device)
+        noise = torch.clamp(noise, 1e-8, 1)
+        fake_data = generator(noise)
+        gen_loss, g_optimizer = train_generator(optimizer = g_optimizer, fake_data = fake_data)
+        g_optimizer.step()
+
+        d_optimizer.zero_grad()
+        noise = torch.randn((batch_size, nz), device=device)
+        noise = torch.clamp(noise, 1e-8, 1)
+        fake_data = generator(noise)
+        dis_loss, d_optimizer = train_discriminator(optimizer = d_optimizer, real_data = data, fake_data = fake_data)
+
+        
+        d_optimizer.step()
     # reshape the image tensors into a grid
-    generated_img = make_grid(generated_img)
+    if epoch % 100 == 0:
+      print('Epoch: {} \t Gen loss: {} \t Dis loss: {}'.format(epoch, gen_loss, dis_loss))
+      print('youre past {}'.format(epoch))
+    generated_img = make_grid(fake_data)
     # save the generated torch tensor images
-    save_image(generated_img, f"../outputs/gen_img{epoch}.png")
+    save_image(generated_img, f"outputs/gen_img{epoch}.png")

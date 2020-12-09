@@ -6,6 +6,9 @@ from torch.nn import functional as F
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
 
+train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=batch_size, shuffle=True)
+test_loader = torch.utils.data.DataLoader(mnist_test, batch_size=batch_size, shuffle=True)
+
 parser = argparse.ArgumentParser(description='VAE MNIST Example') # collect arguments passed to file
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 128)')
@@ -32,7 +35,6 @@ train_loader = torch.utils.data.DataLoader(
 test_loader = torch.utils.data.DataLoader(
     datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
     batch_size=args.batch_size, shuffle=True, **kwargs)
-
 
 class VAE(nn.Module):
     def __init__(self):
@@ -63,8 +65,7 @@ class VAE(nn.Module):
         return self.decode(z), mu, logvar
 
 
-model = VAE().to(device)
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+
 
 
 def VAE_loss_function(recon_x, x, mu, logvar):
@@ -110,7 +111,7 @@ def test(epoch):
         for i, (data, _) in enumerate(test_loader):
             data = data.to(device)
             recon_batch, mu, logvar = model(data)
-            test_loss += loss_function(recon_batch, data, mu, logvar).item()
+            test_loss += VAE_loss_function(recon_batch, data, mu, logvar).item()
             if i == 0:
                 n = min(data.size(0), 8)
                 comparison = torch.cat([data[:n],
@@ -121,8 +122,9 @@ def test(epoch):
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
-
 if __name__ == "__main__":
+    model = VAE().to(device)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
     for epoch in range(1, args.epochs + 1):
         train(epoch)
         test(epoch)
